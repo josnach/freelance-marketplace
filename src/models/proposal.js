@@ -36,7 +36,12 @@ const proposalSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN"],
+      enum: [
+        "PENDING",
+        "ACCEPTED",
+        "REJECTED",
+        "WITHDRAWN"
+      ],
       default: "PENDING"
     }
   },
@@ -45,6 +50,10 @@ const proposalSchema = new mongoose.Schema(
   }
 );
 
+/*
+  A freelancer can submit only one proposal
+  for a particular job.
+*/
 proposalSchema.index(
   {
     job: 1,
@@ -55,4 +64,7 @@ proposalSchema.index(
   }
 );
 
-module.exports = mongoose.model("Proposal", proposalSchema);
+module.exports = mongoose.model(
+  "Proposal",
+  proposalSchema
+);

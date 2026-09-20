@@ -1,25 +1,31 @@
 const express = require("express");
 
-const protect = require("../middleware/auth.middleware");
-const authorize = require("../middleware/role.middleware");
-const validate = require("../middleware/validate.middleware");
+const protect = require("../middleware/authMiddleware");
+const authorize = require("../middleware/roleMiddleware");
+const validate = require("../middleware/validateMiddleware");
 
 const {
   createProposal,
   getJobProposals,
   getMyProposals,
-  getProposalById
-} = require("../controllers/proposal.controller");
+  getProposalById,
+  acceptProposal,
+  rejectProposal
+} = require("../controllers/proposalController");
 
 const {
   createProposalSchema
-} = require("../validators/proposal.validator");
+} = require("../validators/proposalValidator");
 
 const router = express.Router();
 
+
 /*
-  Freelancer submits proposal
+====================================================
+FREELANCER ROUTES
+====================================================
 */
+
 router.post(
   "/jobs/:jobId/proposals",
   protect,
@@ -28,19 +34,6 @@ router.post(
   createProposal
 );
 
-/*
-  Client views proposals for their job
-*/
-router.get(
-  "/jobs/:jobId/proposals",
-  protect,
-  authorize("CLIENT"),
-  getJobProposals
-);
-
-/*
-  Freelancer views their own proposals
-*/
 router.get(
   "/proposals/my",
   protect,
@@ -48,15 +41,47 @@ router.get(
   getMyProposals
 );
 
+
 /*
-  Client or Freelancer can view
-  a proposal they are involved with.
+====================================================
+CLIENT ROUTES
+====================================================
 */
+
+router.get(
+  "/jobs/:jobId/proposals",
+  protect,
+  authorize("CLIENT"),
+  getJobProposals
+);
+
+router.patch(
+  "/proposals/:id/accept",
+  protect,
+  authorize("CLIENT"),
+  acceptProposal
+);
+
+router.patch(
+  "/proposals/:id/reject",
+  protect,
+  authorize("CLIENT"),
+  rejectProposal
+);
+
+
+/*
+
+SHARED ROUTE
+
+*/
+
 router.get(
   "/proposals/:id",
   protect,
   authorize("CLIENT", "FREELANCER"),
   getProposalById
 );
+
 
 module.exports = router;
