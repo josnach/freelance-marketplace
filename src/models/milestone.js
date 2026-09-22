@@ -5,75 +5,115 @@ const milestoneSchema = new mongoose.Schema(
     project: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
-      required: true
+      required: true,
+      index: true,
+    },
+
+    client: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    freelancer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    payment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payment",
+      default: null,
     },
 
     title: {
       type: String,
-      required: [true, "Milestone title is required"],
+      required: true,
       trim: true,
-      minlength: 3,
-      maxlength: 150
+      maxlength: 200,
     },
 
     description: {
       type: String,
-      required: [true, "Milestone description is required"],
-      trim: true,
-      minlength: 10,
-      maxlength: 2000
+      default: "",
+      maxlength: 2000,
     },
 
     amount: {
       type: Number,
-      required: [true, "Milestone amount is required"],
-      min: 0
+      required: true,
+      min: 100,
+    },
+
+    currency: {
+      type: String,
+      default: "NGN",
+      uppercase: true,
+      trim: true,
+    },
+
+    order: {
+      type: Number,
+      required: true,
+      min: 1,
     },
 
     dueDate: {
       type: Date,
-      required: [true, "Milestone due date is required"]
+      default: null,
     },
 
     status: {
       type: String,
       enum: [
         "PENDING",
+        "FUNDED",
         "IN_PROGRESS",
         "SUBMITTED",
+        "REVISION_REQUESTED",
         "APPROVED",
-        "REJECTED"
+        "RELEASED",
+        "REFUNDED",
+        "DISPUTED",
+        "CANCELLED",
       ],
-      default: "PENDING"
+      default: "PENDING",
+      index: true,
     },
 
-    submission: {
+    submissionNote: {
       type: String,
       default: "",
-      maxlength: 3000
     },
 
     submittedAt: {
       type: Date,
-      default: null
+      default: null,
     },
 
-    completedAt: {
+    approvedAt: {
       type: Date,
-      default: null
-    }
+      default: null,
+    },
+
+    releasedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
-    timestamps: true
+    timestamps: true,
   }
 );
 
 milestoneSchema.index({
   project: 1,
-  status: 1
+  order: 1,
 });
 
-module.exports = mongoose.model(
-  "Milestone",
-  milestoneSchema
-);
+module.exports =
+  mongoose.models.Milestone ||
+  mongoose.model("Milestone", milestoneSchema);

@@ -8,6 +8,11 @@ const jobRoutes = require("./src/routes/jobRoutes");
 const proposalRoutes = require("./src/routes/proposalRoutes");
 const milestoneRoutes = require("./src/routes/milestoneRoute");
 const projectRoutes = require("./src/routes/projectRoutes");
+const paymentRoutes =  require("./src/routes/paymentRoutes");
+const walletRoutes =  require("./src/routes/walletRoutes");
+const paymentWebhookRoutes = require(
+  "./src/routes/paymentWebhookRoutes"
+);
 
 
 const errorHandler = require("./src/middleware/errorMiddleware");
@@ -22,8 +27,13 @@ app.use(
   })
 );
 
-app.use(express.json());
-
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -37,6 +47,9 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api", proposalRoutes);
 app.use("/api", milestoneRoutes);
 app.use("/api", projectRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/wallets", walletRoutes);
+app.use("/api/webhooks", paymentWebhookRoutes);
 app.use(errorHandler);
 
 module.exports = app;
