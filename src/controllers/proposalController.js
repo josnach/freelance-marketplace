@@ -1,130 +1,88 @@
-const proposalService = require("../services/proposal.js");
-const asyncHandler = require("../utils/asyncHandler");
-
-const createProposal = asyncHandler(
-  async (req, res) => {
-    const proposal =
-      await proposalService.createProposal(
-        req.params.jobId,
-        req.user._id,
-        req.body
-      );
-
-    res.status(201).json({
-      success: true,
-      message: "Proposal submitted successfully",
-      data: {
-        proposal
-      }
-    });
-  }
-);
-
-const getJobProposals = asyncHandler(
-  async (req, res) => {
-    const proposals =
-      await proposalService.getJobProposals(
-        req.params.jobId,
-        req.user._id
-      );
-
-    res.status(200).json({
-      success: true,
-      data: {
-        proposals
-      }
-    });
-  }
-);
-
-const getMyProposals = asyncHandler(
-  async (req, res) => {
-    const proposals =
-      await proposalService.getMyProposals(
-        req.user._id
-      );
-
-    res.status(200).json({
-      success: true,
-      data: {
-        proposals
-      }
-    });
-  }
-);
-
-const getProposalById = asyncHandler(
-  async (req, res) => {
-    const proposal =
-      await proposalService.getProposalById(
-        req.params.id,
-        req.user._id
-      );
-
-    res.status(200).json({
-      success: true,
-      data: {
-        proposal
-      }
-    });
-  }
-);
+const proposalService = require("../services/proposalService");
+const catchAsync = require("../utils/asyncHandler");
 
 
-/*
+const createProposal = catchAsync(async (req, res) => {
+  const proposal = await proposalService.createProposal({
+    jobId: req.params.jobId,
+    freelancerId: req.user.id,
+    coverLetter: req.body.coverLetter,
+    bidAmount: req.body.bidAmount,
+    estimatedDays: req.body.estimatedDays, 
+    attachments: req.body.attachments,    
+  });
+  res.status(201).json(new ApiResponse(201, "Proposal submitted successfully", proposal));
+});
 
-ACCEPT PROPOSAL
+const listForJob = catchAsync(async (req, res) => {
+  const result = await proposalService.listForJob({
+    jobId: req.params.jobId,
+    clientId: req.user.id,
+    page: req.query.page,
+    limit: req.query.limit,
+  });
+  res.json(new ApiResponse(200, "Proposals retrieved successfully", result));
+});
 
-*/
+const myProposals = catchAsync(async (req, res) => {
+  const result = await proposalService.myProposals({
+    freelancerId: req.user.id,
+    page: req.query.page,
+    limit: req.query.limit,
+  });
+  res.json(new ApiResponse(200, "Your proposals retrieved successfully", result));
+});
 
-const acceptProposal = asyncHandler(
-  async (req, res) => {
-    const result =
-      await proposalService.acceptProposal(
-        req.params.id,
-        req.user._id
-      );
+const getById = catchAsync(async (req, res) => {
+  const proposal = await proposalService.getById({
+    proposalId: req.params.id,
+    userId: req.user.id,
+  });
+  res.json(new ApiResponse(200, "Proposal retrieved successfully", proposal));
+});
 
-    res.status(200).json({
-      success: true,
-      message:
-        "Proposal accepted and project created successfully",
-      data: result
-    });
-  }
-);
+const updateProposal = catchAsync(async (req, res) => {
+  const proposal = await proposalService.updateProposal({
+    proposalId: req.params.id,
+    freelancerId: req.user.id,
+    update: req.body,
+  });
+  res.json(new ApiResponse(200, "Proposal updated successfully", proposal));
+});
 
+const withdrawProposal = catchAsync(async (req, res) => {
+  const proposal = await proposalService.withdrawProposal({
+    proposalId: req.params.id,
+    freelancerId: req.user.id,
+  });
+  res.json(new ApiResponse(200, "Proposal withdrawn successfully", proposal));
+});
 
-/*
+const rejectProposal = catchAsync(async (req, res) => {
+  const proposal = await proposalService.rejectProposal({
+    proposalId: req.params.id,
+    clientId: req.user.id,
+  });
+  res.json(new ApiResponse(200, "Proposal rejected successfully", proposal));
+});
 
-REJECT PROPOSAL
-
-*/
-
-const rejectProposal = asyncHandler(
-  async (req, res) => {
-    const proposal =
-      await proposalService.rejectProposal(
-        req.params.id,
-        req.user._id
-      );
-
-    res.status(200).json({
-      success: true,
-      message: "Proposal rejected successfully",
-      data: {
-        proposal
-      }
-    });
-  }
-);
-
+const acceptProposal = catchAsync(async (req, res) => {
+  const { proposal, project } = await proposalService.acceptProposal({
+    proposalId: req.params.id,
+    clientId: req.user.id,
+  });
+  res.status(201).json(
+    new ApiResponse(201, "Proposal accepted. Project created successfully.", { proposal, project })
+  );
+});
 
 module.exports = {
   createProposal,
-  getJobProposals,
-  getMyProposals,
-  getProposalById,
+  listForJob,
+  myProposals,
+  getById,
+  updateProposal,
+  withdrawProposal,
+  rejectProposal,
   acceptProposal,
-  rejectProposal
 };
