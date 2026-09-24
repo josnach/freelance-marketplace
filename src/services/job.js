@@ -1,5 +1,5 @@
 const JobSchema = require("../models/job")
-const {verifyNewJobData} = require("../../joiSchema")
+const { postNewJobValidatorParse } = require("../validators/jobValidator")
 
 
 
@@ -19,14 +19,40 @@ class CJobServices {
             }
 
             const skip = (JSON.parse(page) - 1) * JSON.parse(limit)
+            
 
-            const options = {
-                skip: skip,
-                limit: JSON.parse(limit) 
-            }
+            // const options = {
+            //     skip: skip,
+            //     limit: JSON.parse(limit) 
+            // }
 
             // find a way to filter
-            const findPostedJobs = await JobSchema.find({},null,options)
+            const findPostedJobs = await JobSchema.aggregate([
+                {
+                    $facet: {
+                    // Track A: Get the total count
+                    totalCount: [
+                        { $count: 'count' }
+                    ],
+                        // Track B: Get the actual paginated data
+                        paginatedData: [
+                            { $skip: skip },
+                            { $limit: Number(limit) }
+                        ]
+                    }
+                },
+
+                // 3. Format the output so it's clean and easy to use
+                {
+                    $project: {
+                    total: { $ifNull: [{ $arrayElemAt: ['$totalCount.count', 0] }, 0] },
+                    data: '$paginatedData'
+                    }
+                }
+            ])
+
+            const totalItemsPage = Math.ceil(findPostedJobs[0].total / limit)
+            const totalItems = findPostedJobs[0].total
 
             if(!findPostedJobs) {
                 throw new Error("no jobs posted yet")
@@ -35,7 +61,9 @@ class CJobServices {
             return {
                 page: JSON.parse(page),
                 limit: JSON.parse(limit),
-                data: findPostedJobs 
+                total: totalItems,
+                totalPage: totalItemsPage,
+                data: findPostedJobs[0].data
             }
 
         }catch(err) {
@@ -64,13 +92,13 @@ class CJobServices {
     // post new job 
     async postANewJob(body) {
         try{
-            const {error,value} = verifyNewJobData(body)
+            const result = postNewJobValidatorParse(body)
 
-            if(error) {
-                throw new Error(error)
+            if(result.rror) {
+                throw new Error(result.error)
             }
 
-            const {title,description,budget,jobstatus,location,duration} = value
+            const {title,description,budget,jobstatus,location,duration} = result
 
             const data = await JobSchema.create({
                 title,

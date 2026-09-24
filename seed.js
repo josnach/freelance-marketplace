@@ -2,7 +2,7 @@ require("dotenv").config()
 
 const mongoose = require("mongoose")
 const JobsSchema = require("./src/models/job")
-const { verifySchemaData } = require("./joiSchema")
+const { validateSchemaParse } = require("./src/validators/jobValidator")
 
 const jobData = [
 
@@ -49,13 +49,13 @@ const jobData = [
 
         await JobsSchema.deleteMany()
 
-        const {error,value} = verifySchemaData(jobData)
+        const result = validateSchemaParse(jobData)
 
-        if(error) {
-            throw new Error(error)
+        if(result.error) {
+            throw new Error(result.error)
         }
 
-        await JobsSchema.insertMany(value)
+        await JobsSchema.insertMany(result)
 
 
 
