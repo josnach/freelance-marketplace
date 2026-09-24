@@ -6,74 +6,101 @@ const projectSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Job",
       required: true,
-      unique: true
+      unique: true,
+      index: true,
+    },
+
+    client: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    freelancer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
     },
 
     proposal: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Proposal",
       required: true,
-      unique: true
-    },
-
-    client: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
-    },
-
-    freelancer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
+      unique: true,
     },
 
     title: {
       type: String,
       required: true,
       trim: true,
-      maxlength: 150
     },
 
     description: {
       type: String,
-      required: true,
+      default: "",
       trim: true,
-      maxlength: 5000
     },
 
-    budget: {
+    totalAmount: {
       type: Number,
       required: true,
-      min: 0
+      min: 1,
+    },
+
+    currency: {
+      type: String,
+      default: "NGN",
+      uppercase: true,
+      trim: true,
     },
 
     status: {
       type: String,
       enum: [
-        "ACTIVE",
+        "AWAITING_PAYMENT",
+        "IN_PROGRESS",
         "COMPLETED",
-        "CANCELLED"
+        "CANCELLED",
+        "DISPUTED",
       ],
-      default: "ACTIVE"
+      default: "AWAITING_PAYMENT",
+      index: true,
     },
 
-    startDate: {
-      type: Date,
-      default: Date.now
+    funded: {
+      type: Boolean,
+      default: false,
     },
 
-    endDate: {
+    fundedAt: {
       type: Date,
-      default: null
-    }
+      default: null,
+    },
+
+    paymentReference: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+
+    startedAt: {
+      type: Date,
+      default: null,
+    },
+
+    completedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
-    timestamps: true
+    timestamps: true,
   }
 );
 
-module.exports = mongoose.model(
-  "Project",
-  projectSchema
-);
+module.exports =
+  mongoose.models.Project ||
+  mongoose.model("Project", projectSchema);

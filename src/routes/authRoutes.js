@@ -3,18 +3,30 @@ const express = require("express");
 const {
   register,
   login,
-  getMe,
+  verifyEmail,
+  resendVerificationEmail,
+  forgotPassword,
+  resetPassword,
+  getMe
 } = require("../controllers/authController.js");
 
-const protect = require("../middleware/authMiddleware.js");
-const validate = require("../middleware/validateMiddleware.js");
+const protect =
+  require("../middleware/authMiddleware.js");
+
+const validate =
+  require("../middleware/validateMiddleware.js");
 
 const {
   registerSchema,
   loginSchema,
+  resendVerificationSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema
 } = require("../validators/authValidator.js");
 
+
 const router = express.Router();
+
 
 /*
  * Public registration
@@ -24,6 +36,26 @@ router.post(
   validate(registerSchema),
   register
 );
+
+
+/*
+ * Verify email
+ */
+router.get(
+  "/verify-email",
+  verifyEmail
+);
+
+
+/*
+ * Resend verification email
+ */
+router.post(
+  "/resend-verification",
+  validate(resendVerificationSchema),
+  resendVerificationEmail
+);
+
 
 /*
  * Public login
@@ -35,6 +67,25 @@ router.post(
 );
 
 /*
+ * Forgot password
+ */
+router.post(
+  "/forgot-password",
+  validate(forgotPasswordSchema),
+  forgotPassword
+);
+
+
+/*
+ * Reset password
+ */
+router.post(
+  "/reset-password",
+  validate(resetPasswordSchema),
+  resetPassword
+);
+
+/*
  * Get currently authenticated user
  */
 router.get(
@@ -42,5 +93,6 @@ router.get(
   protect,
   getMe
 );
+
 
 module.exports = router;

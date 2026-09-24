@@ -108,40 +108,111 @@ const startMilestone =
 
 
 const submitMilestone =
-  asyncHandler(async (req, res) => {
-    const milestone =
-      await milestoneService.submitMilestone(
-        req.params.id,
-        req.user._id,
-        req.body.submission
-      );
+  asyncHandler(
+    async (req, res) => {
+      const { id } = req.params;
+      const { submissionNote } =
+        req.body;
 
-    res.status(200).json({
-      success: true,
-      message: "Milestone submitted successfully",
-      data: {
-        milestone
+      const milestone =
+        await Milestone.findById(id);
+
+      if (!milestone) {
+        throw new AppError(
+          "Milestone not found",
+          404
+        );
       }
-    });
-  });
+
+      if (
+        milestone.freelancer.toString() !==
+        req.user._id.toString()
+      ) {
+        throw new AppError(
+          "You are not authorized to submit this milestone",
+          403
+        );
+      }
+
+      if (
+        !["FUNDED", "IN_PROGRESS"].includes(
+          milestone.status
+        )
+      ) {
+        throw new AppError(
+          "This milestone cannot be submitted",
+          400
+        );
+      }
+
+      milestone.status = "SUBMITTED";
+      milestone.submissionNote =
+        submissionNote || "";
+      milestone.submittedAt = new Date();
+
+      await milestone.save();
+
+      res.status(200).json({
+        success: true,
+        message:
+          "Milestone submitted successfully",
+        data: {
+          milestone
+        }
+      });
+    }
+  );
 
 
 const approveMilestone =
-  asyncHandler(async (req, res) => {
-    const milestone =
-      await milestoneService.approveMilestone(
-        req.params.id,
-        req.user._id
-      );
+  asyncHandler(
+    async (req, res) => {
+      const { id } = req.params;
 
-    res.status(200).json({
-      success: true,
-      message: "Milestone approved successfully",
-      data: {
-        milestone
+      const milestone =
+        await Milestone.findById(id);
+
+      if (!milestone) {
+        throw new AppError(
+          "Milestone not found",
+          404
+        );
       }
-    });
-  });
+
+      if (
+        milestone.client.toString() !==
+        req.user._id.toString()
+      ) {
+        throw new AppError(
+          "You are not authorized to approve this milestone",
+          403
+        );
+      }
+
+      if (
+        milestone.status !== "SUBMITTED"
+      ) {
+        throw new AppError(
+          "Only submitted milestones can be approved",
+          400
+        );
+      }
+
+      milestone.status = "APPROVED";
+      milestone.approvedAt = new Date();
+
+      await milestone.save();
+
+      res.status(200).json({
+        success: true,
+        message:
+          "Milestone approved successfully",
+        data: {
+          milestone
+        }
+      });
+    }
+  );
 
 
 const rejectMilestone =

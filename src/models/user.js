@@ -62,11 +62,81 @@ const userSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
-    }
+    },
+
+    // Email verification
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
+
+    emailVerificationToken: {
+      type: String,
+      default: null,
+      select: false
+    },
+
+    emailVerificationExpires: {
+      type: Date,
+      default: null,
+      select: false
+    },
+
+passwordResetToken: {
+  type: String,
+  default: null,
+  select: false
+},
+
+passwordResetExpires: {
+  type: Date,
+  default: null,
+  select: false
+},
+
+bankAccount: {
+  accountName: {
+    type: String,
+    default: ""
+  },
+
+  accountNumber: {
+    type: String,
+    default: "",
+    select: false
+  },
+
+  bankCode: {
+    type: String,
+    default: "",
+    select: false
+  },
+
+  bankName: {
+    type: String,
+    default: ""
+  },
+
+  isVerified: {
+    type: Boolean,
+    default: false
+  }
+},
+
+paystackCustomerCode: {
+  type: String,
+  default: null
+},
+
+paystackSubaccountCode: {
+  type: String,
+  default: null
+},
+
   },
   {
     timestamps: true
   }
 );
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model("User", userSchema)
