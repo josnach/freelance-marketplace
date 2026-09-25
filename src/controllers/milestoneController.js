@@ -1,6 +1,18 @@
 const milestoneService = require("../services/milestone.js");
 const asyncHandler = require("../utils/asyncHandler");
 
+/*
+  NOTE: this file previously also had its own
+  submitMilestone/approveMilestone (missing every
+  require they used - ReferenceError on every call),
+  duplicating milestoneSubmissionController.js /
+  milestoneApprovalController.js almost exactly. That
+  duplication has been removed. Submitting and
+  approving milestones now happens exclusively
+  through the workroom routes:
+    POST /api/milestones/:milestoneId/submit
+    POST /api/milestones/:milestoneId/approve
+*/
 
 const createMilestone = asyncHandler(
   async (req, res) => {
@@ -107,114 +119,6 @@ const startMilestone =
   });
 
 
-const submitMilestone =
-  asyncHandler(
-    async (req, res) => {
-      const { id } = req.params;
-      const { submissionNote } =
-        req.body;
-
-      const milestone =
-        await Milestone.findById(id);
-
-      if (!milestone) {
-        throw new AppError(
-          "Milestone not found",
-          404
-        );
-      }
-
-      if (
-        milestone.freelancer.toString() !==
-        req.user._id.toString()
-      ) {
-        throw new AppError(
-          "You are not authorized to submit this milestone",
-          403
-        );
-      }
-
-      if (
-        !["FUNDED", "IN_PROGRESS"].includes(
-          milestone.status
-        )
-      ) {
-        throw new AppError(
-          "This milestone cannot be submitted",
-          400
-        );
-      }
-
-      milestone.status = "SUBMITTED";
-      milestone.submissionNote =
-        submissionNote || "";
-      milestone.submittedAt = new Date();
-
-      await milestone.save();
-
-      res.status(200).json({
-        success: true,
-        message:
-          "Milestone submitted successfully",
-        data: {
-          milestone
-        }
-      });
-    }
-  );
-
-
-const approveMilestone =
-  asyncHandler(
-    async (req, res) => {
-      const { id } = req.params;
-
-      const milestone =
-        await Milestone.findById(id);
-
-      if (!milestone) {
-        throw new AppError(
-          "Milestone not found",
-          404
-        );
-      }
-
-      if (
-        milestone.client.toString() !==
-        req.user._id.toString()
-      ) {
-        throw new AppError(
-          "You are not authorized to approve this milestone",
-          403
-        );
-      }
-
-      if (
-        milestone.status !== "SUBMITTED"
-      ) {
-        throw new AppError(
-          "Only submitted milestones can be approved",
-          400
-        );
-      }
-
-      milestone.status = "APPROVED";
-      milestone.approvedAt = new Date();
-
-      await milestone.save();
-
-      res.status(200).json({
-        success: true,
-        message:
-          "Milestone approved successfully",
-        data: {
-          milestone
-        }
-      });
-    }
-  );
-
-
 const rejectMilestone =
   asyncHandler(async (req, res) => {
     const milestone =
@@ -240,7 +144,5 @@ module.exports = {
   updateMilestone,
   deleteMilestone,
   startMilestone,
-  submitMilestone,
-  approveMilestone,
   rejectMilestone
 };

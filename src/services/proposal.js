@@ -1,6 +1,6 @@
-const Proposal = require("../models/Proposal");
-const Job = require("../models/Job");
-const Project = require("../models/Project");
+const Proposal = require("../models/proposal");
+const Job = require("../models/job");
+const Project = require("../models/project");
 const AppError = require("../utils/AppError");
 
 const createProposal = async (
@@ -142,126 +142,6 @@ const getProposalById = async (
 
 /*
 
-ACCEPT PROPOSAL
-
-*/
-
-const acceptProposal = async (
-  proposalId,
-  clientId
-) => {
-  const proposal = await Proposal.findById(
-    proposalId
-  ).populate("job");
-
-  if (!proposal) {
-    throw new AppError(
-      "Proposal not found",
-      404
-    );
-  }
-
-  const job = proposal.job;
-
-  /*
-    Make sure this client owns the job.
-  */
-  if (
-    job.client.toString() !==
-    clientId.toString()
-  ) {
-    throw new AppError(
-      "You can only accept proposals for your own jobs",
-      403
-    );
-  }
-
-  /*
-    Job must still be open.
-  */
-  if (job.status !== "OPEN") {
-    throw new AppError(
-      "This job is no longer open",
-      400
-    );
-  }
-
-  /*
-    Proposal must still be pending.
-  */
-  if (proposal.status !== "PENDING") {
-    throw new AppError(
-      "Only pending proposals can be accepted",
-      400
-    );
-  }
-
-  /*
-    Make sure a project doesn't already exist.
-  */
-  const existingProject = await Project.findOne({
-    job: job._id
-  });
-
-  if (existingProject) {
-    throw new AppError(
-      "A project already exists for this job",
-      409
-    );
-  }
-
-  /*
-    Accept selected proposal.
-  */
-  proposal.status = "ACCEPTED";
-  await proposal.save();
-
-  /*
-    Reject all other pending proposals
-    for the same job.
-  */
-  await Proposal.updateMany(
-    {
-      job: job._id,
-      _id: { $ne: proposal._id },
-      status: "PENDING"
-    },
-    {
-      $set: {
-        status: "REJECTED"
-      }
-    }
-  );
-
-  /*
-    Change job status.
-  */
-  job.status = "IN_PROGRESS";
-  await job.save();
-
-  /*
-    Create project.
-  */
-  const project = await Project.create({
-    job: job._id,
-    proposal: proposal._id,
-    client: job.client,
-    freelancer: proposal.freelancer,
-    title: job.title,
-    description: job.description,
-    budget: proposal.bidAmount,
-    status: "ACTIVE"
-  });
-
-  return {
-    proposal,
-    project
-  };
-};
-
-
-/*
-
 REJECT PROPOSAL
 
 */
@@ -313,6 +193,5 @@ module.exports = {
   getJobProposals,
   getMyProposals,
   getProposalById,
-  acceptProposal,
   rejectProposal
 };

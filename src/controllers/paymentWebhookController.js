@@ -1,22 +1,27 @@
 const mongoose = require("mongoose");
 
 const Payment = require("../models/Payment.js");
-
-
-const WebhookEvent = require("../models/WebhookEvent");
+const WebhookEvent = require("../models/WebhookEvent.js");
+const Project = require("../models/project.js");
+const Milestone = require("../models/milestone.js");
+const Contract = require("../models/contract.js");
+const Wallet = require("../models/wallet.js");
+const WalletTransaction = require("../models/WalletTransaction.js");
+const ProjectActivity = require("../models/projectActivity.js");
 
 const {
   verifyPaystackSignature,
 } = require("../services/paymentWebhook.js");
-const project = require("../models/project.js");
-const milestone = require("../models/milestone.js");
+
+const withdrawalService = require("../services/withdrawal.js");
 
 const handlePaystackWebhook = async (req, res) => {
   try {
     /*
-     * 1. Verify that the request actually came from Paystack
+     * 1. VERIFY PAYSTACK SIGNATURE
      */
-    const validSignature = verifyPaystackSignature(req);
+    const validSignature =
+      verifyPaystackSignature(req);
 
     if (!validSignature) {
       return res.status(401).json({
@@ -25,16 +30,10 @@ const handlePaystackWebhook = async (req, res) => {
       });
     }
 
-    const event = req.body;
-
     /*
-     * Paystack events normally contain:
-     *
-     * {
-     *   event: "charge.success",
-     *   data: {...}
-     * }
+     * 2. GET WEBHOOK PAYLOAD
      */
+    const event = req.body;
 
     const eventName = event.event;
     const data = event.data;
@@ -47,7 +46,30 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     /*
-     * 2. Only process successful charges here
+     * 3. HANDLE WITHDRAWAL TRANSFER EVENTS
+     * SEPARATELY - these settle a Withdrawal,
+     * not a Payment.
+     */
+    if (
+      eventName === "transfer.success" ||
+      eventName === "transfer.failed" ||
+      eventName === "transfer.reversed"
+    ) {
+      await withdrawalService.processTransferWebhookEvent(
+        eventName,
+        data,
+        event
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Transfer event processed",
+      });
+    }
+
+    /*
+     * 4. OTHERWISE WE ONLY PROCESS
+     * SUCCESSFUL PAYMENTS
      */
     if (eventName !== "charge.success") {
       return res.status(200).json({
@@ -56,9 +78,13 @@ const handlePaystackWebhook = async (req, res) => {
       });
     }
 
-    const reference = data.reference;
+    /*
+     * 4. GET PAYSTACK REFERENCE
+     */
+    const providerReference =
+      data.reference;
 
-    if (!reference) {
+    if (!providerReference) {
       return res.status(400).json({
         success: false,
         message: "Payment reference missing",
@@ -66,14 +92,14 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     /*
-     * 3. Idempotency
+     * 5. CHECK IF THIS WEBHOOK WAS ALREADY PROCESSED
      */
-
-    const existingEvent = await WebhookEvent.findOne({
-      reference,
-      event: eventName,
-      processed: true,
-    });
+    const existingEvent =
+      await WebhookEvent.findOne({
+        reference: providerReference,
+        event: eventName,
+        processed: true,
+      });
 
     if (existingEvent) {
       return res.status(200).json({
@@ -83,33 +109,52 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     /*
-     * 4. Locate our payment
+     * 6. FIND PAYMENT USING PAYSTACK REFERENCE
+     *
+     * IMPORTANT:
+     * Paystack reference is stored in
+     * Payment.providerReference
      */
-
-    const payment = await Payment.findOne({
-      reference,
-    });
+    const payment =
+      await Payment.findOne({
+        providerReference,
+      });
 
     if (!payment) {
       /*
-       * Don't keep retrying an event that belongs
-       * to another integration/payment.
+       * Do not keep retrying a payment that
+       * does not belong to this marketplace.
        */
       return res.status(200).json({
         success: true,
-        message: "Payment not found in marketplace",
+        message:
+          "Payment not found in marketplace",
       });
     }
 
     /*
-     * 5. Make sure the amount matches.
+     * 7. VERIFY THE AMOUNT
      *
-     * Paystack returns amount in kobo.
+     * Payment.amount = milestone amount
+     * Payment.clientFee = fee paid by client
+     *
+     * Paystack receives:
+     *
+     * amount + clientFee
+     *
+     * multiplied by 100 because Paystack
+     * expects kobo.
      */
+    const expectedAmount = Math.round(
+      (payment.amount +
+        payment.clientFee) *
+        100
+    );
 
-    const expectedAmount = payment.amount * 100;
-
-    if (Number(data.amount) !== Number(expectedAmount)) {
+    if (
+      Number(data.amount) !==
+      Number(expectedAmount)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Payment amount mismatch",
@@ -117,104 +162,400 @@ const handlePaystackWebhook = async (req, res) => {
     }
 
     /*
-     * 6. Prevent duplicate payment processing
+     * 8. VERIFY CURRENCY
      */
-
-    if (payment.status === "SUCCESS") {
-      return res.status(200).json({
-        success: true,
-        message: "Payment already successful",
+    if (
+      data.currency &&
+      String(data.currency).toUpperCase() !==
+        String(payment.currency).toUpperCase()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment currency mismatch",
       });
     }
 
     /*
-     * 7. Start database transaction
+     * 9. IDEMPOTENCY CHECK
+     *
+     * FUNDED means the payment has already
+     * been confirmed.
+     *
+     * RELEASED also means it was already
+     * successfully processed.
      */
+    if (
+      payment.status === "FUNDED" ||
+      payment.status === "RELEASED"
+    ) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "Payment already processed",
+      });
+    }
 
-    const session = await mongoose.startSession();
+    /*
+     * 10. FIND MILESTONE
+     */
+    const milestone =
+      await Milestone.findById(
+        payment.milestone
+      );
+
+    if (!milestone) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "Milestone not found",
+      });
+    }
+
+    /*
+     * 11. FIND PROJECT
+     */
+    const project =
+      await Project.findById(
+        payment.project
+      );
+
+    if (!project) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "Project not found",
+      });
+    }
+
+    /*
+     * 12. START DATABASE TRANSACTION
+     */
+    const session =
+      await mongoose.startSession();
 
     try {
-      await session.withTransaction(async () => {
-        payment.status = "SUCCESS";
-        payment.paidAt = new Date();
+      await session.withTransaction(
+        async () => {
+          const now = new Date();
 
-        await payment.save({ session });
+          /*
+           * =====================================
+           * PAYMENT
+           * =====================================
+           */
+          payment.status = "FUNDED";
 
-        /*
-         * Fund the project
-         */
+          payment.providerTransactionId =
+            data.id
+              ? String(data.id)
+              : null;
 
-        await project.findByIdAndUpdate(
-          payment.project,
-          {
-            $set: {
-              status: "IN_PROGRESS",
-              funded: true,
-              fundedAt: new Date(),
-            },
-          },
-          {
+          payment.providerStatus =
+            data.status || "success";
+
+          payment.paidAt =
+            data.paid_at
+              ? new Date(data.paid_at)
+              : now;
+
+          await payment.save({
             session,
+          });
+
+          /*
+           * =====================================
+           * MILESTONE
+           * =====================================
+           *
+           * PENDING -> FUNDED
+           */
+          if (
+            milestone.status === "PENDING" ||
+            milestone.status ===
+              "REVISION_REQUESTED"
+          ) {
+            milestone.status = "FUNDED";
+
+            await milestone.save({
+              session,
+            });
           }
-        );
 
-        /*
-         * Activate the first milestone
-         */
+          /*
+           * =====================================
+           * PROJECT
+           * =====================================
+           *
+           * First successful payment activates
+           * the project.
+           */
+          project.funded = true;
 
-        await milestone.findOneAndUpdate(
-          {
-            project: payment.project,
-            status: "PENDING",
-          },
-          {
-            $set: {
-              status: "ACTIVE",
-              activatedAt: new Date(),
-            },
-          },
-          {
+          if (!project.fundedAt) {
+            project.fundedAt = now;
+          }
+
+          project.status = "IN_PROGRESS";
+
+          /*
+           * IMPORTANT:
+           * startedAt is set when the first payment
+           * is confirmed, NOT when proposal is accepted.
+           */
+          if (!project.startedAt) {
+            project.startedAt = now;
+          }
+
+          await project.save({
             session,
-            sort: {
-              order: 1,
-            },
-          }
-        );
+          });
 
-        await WebhookEvent.create(
-          [
+          /*
+           * =====================================
+           * CONTRACT
+           * =====================================
+           *
+           * PENDING_PAYMENT -> ACTIVE
+           */
+          const contract =
+            await Contract.findOne({
+              project: payment.project,
+            }).session(session);
+
+          if (contract) {
+            if (
+              contract.status ===
+              "PENDING_PAYMENT"
+            ) {
+              contract.status = "ACTIVE";
+            }
+
+            /*
+             * Only set startedAt once.
+             */
+            if (!contract.startedAt) {
+              contract.startedAt = now;
+            }
+
+            await contract.save({
+              session,
+            });
+          }
+
+          /*
+           * =====================================
+           * FREELANCER WALLET
+           * =====================================
+           *
+           * IMPORTANT:
+           *
+           * The freelancer has NOT earned
+           * available money yet.
+           *
+           * The money is held in pendingBalance
+           * until the client approves the milestone.
+           */
+          let wallet =
+            await Wallet.findOne({
+              user: payment.freelancer,
+            }).session(session);
+
+          if (!wallet) {
+            const wallets =
+              await Wallet.create(
+                [
+                  {
+                    user:
+                      payment.freelancer,
+                    pendingBalance: 0,
+                    availableBalance: 0,
+                    totalEarned: 0,
+                    totalWithdrawn: 0,
+                    currency:
+                      payment.currency,
+                  },
+                ],
+                {
+                  session,
+                }
+              );
+
+            wallet = wallets[0];
+          }
+
+          /*
+           * =====================================
+           * WALLET TRANSACTION IDEMPOTENCY
+           * =====================================
+           */
+          const walletReference =
+            `PAYMENT-FUNDED-${payment._id}`;
+
+          const existingWalletTransaction =
+            await WalletTransaction.findOne({
+              reference:
+                walletReference,
+            }).session(session);
+
+          if (!existingWalletTransaction) {
+            const balanceBefore =
+              wallet.pendingBalance;
+
+            const balanceAfter =
+              balanceBefore +
+              payment.freelancerNetAmount;
+
+            wallet.pendingBalance =
+              balanceAfter;
+
+            await wallet.save({
+              session,
+            });
+
+            /*
+             * Record pending earnings.
+             */
+            await WalletTransaction.create(
+              [
+                {
+                  wallet: wallet._id,
+
+                  user:
+                    payment.freelancer,
+
+                  type:
+                    "MILESTONE_EARNING",
+
+                  balanceType:
+                    "PENDING",
+
+                  direction:
+                    "CREDIT",
+
+                  amount:
+                    payment.freelancerNetAmount,
+
+                  balanceBefore,
+
+                  balanceAfter,
+
+                  project:
+                    payment.project,
+
+                  milestone:
+                    payment.milestone,
+
+                  payment:
+                    payment._id,
+
+                  reference:
+                    walletReference,
+
+                  description:
+                    `Pending earnings funded for milestone "${milestone.title}"`,
+                },
+              ],
+              {
+                session,
+              }
+            );
+          }
+
+          /*
+           * =====================================
+           * PROJECT ACTIVITY
+           * =====================================
+           */
+          await ProjectActivity.create(
+            [
+              {
+                project:
+                  payment.project,
+
+                user:
+                  payment.client,
+
+                type:
+                  "PAYMENT_FUNDED",
+
+                milestone:
+                  payment.milestone,
+
+                message:
+                  "Client payment confirmed. The milestone is funded and the project is now in progress.",
+
+                metadata: {
+                  paymentId:
+                    payment._id,
+
+                  providerReference:
+                    payment.providerReference,
+
+                  providerTransactionId:
+                    payment.providerTransactionId,
+
+                  amount:
+                    payment.amount,
+
+                  clientFee:
+                    payment.clientFee,
+
+                  freelancerNetAmount:
+                    payment.freelancerNetAmount,
+
+                  currency:
+                    payment.currency,
+                },
+              },
+            ],
             {
-              eventId:
-                data.id ||
-                `${eventName}-${reference}`,
+              session,
+            }
+          );
 
-              event: eventName,
+          /*
+           * =====================================
+           * RECORD WEBHOOK EVENT
+           * =====================================
+           */
+          await WebhookEvent.create(
+            [
+              {
+                eventId:
+                  data.id ||
+                  `${eventName}-${providerReference}`,
 
-              reference,
+                event:
+                  eventName,
 
-              processed: true,
+                reference:
+                  providerReference,
 
-              processedAt: new Date(),
+                processed: true,
 
-              payload: event,
-            },
-          ],
-          {
-            session,
-          }
-        );
-      });
+                processedAt: now,
+
+                payload: event,
+              },
+            ],
+            {
+              session,
+            }
+          );
+        }
+      );
     } finally {
       await session.endSession();
     }
 
     /*
-     * 8. Acknowledge Paystack
+     * 13. TELL PAYSTACK WE SUCCESSFULLY
+     * RECEIVED AND PROCESSED THE EVENT
      */
-
     return res.status(200).json({
       success: true,
-      message: "Payment processed successfully",
+      message:
+        "Payment processed successfully",
     });
   } catch (error) {
     console.error(
@@ -222,9 +563,16 @@ const handlePaystackWebhook = async (req, res) => {
       error
     );
 
+    /*
+     * Returning 500 is intentional.
+     *
+     * If our database processing failed,
+     * Paystack can retry the webhook.
+     */
     return res.status(500).json({
       success: false,
-      message: "Webhook processing failed",
+      message:
+        "Webhook processing failed",
     });
   }
 };

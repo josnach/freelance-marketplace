@@ -1,13 +1,11 @@
 const axios = require("axios");
 const crypto = require("crypto");
 
-
 const Milestone = require("../models/milestone.js");
 const User = require("../models/user.js");
 const AppError = require("../utils/AppError");
 const Payment = require("../models/Payment.js");
-const {  creditFreelancer} = require("./wallet.js");
-
+const ProjectActivity = require("../models/projectActivity.js");
 
 const paystack = axios.create({
   baseURL:
@@ -19,6 +17,12 @@ const paystack = axios.create({
     "Content-Type": "application/json"
   }
 });
+
+/*
+|--------------------------------------------------------------------------
+| Calculate Platform Fees
+|--------------------------------------------------------------------------
+*/
 
 const calculateFees = (amount) => {
   const clientFeePercent =
@@ -44,6 +48,12 @@ const calculateFees = (amount) => {
     freelancerNetAmount
   };
 };
+
+/*
+|--------------------------------------------------------------------------
+| Initialize Milestone Payment
+|--------------------------------------------------------------------------
+*/
 
 const initializeMilestonePayment = async ({
   milestoneId,
@@ -120,6 +130,12 @@ const initializeMilestonePayment = async ({
       .randomBytes(6)
       .toString("hex")}`;
 
+  /*
+  |--------------------------------------------------------------------------
+  | Create Payment Record
+  |--------------------------------------------------------------------------
+  */
+
   const payment = await Payment.create({
     project: milestone.project._id,
     milestone: milestone._id,
@@ -136,22 +152,65 @@ const initializeMilestonePayment = async ({
     providerReference: reference
   });
 
+  /*
+  |--------------------------------------------------------------------------
+  | Create Project Activity
+  |--------------------------------------------------------------------------
+  */
+
+  await ProjectActivity.create({
+    project: milestone.project._id,
+
+    user: clientId,
+
+    type: "PAYMENT_INITIALIZED",
+
+    milestone: milestone._id,
+
+    message:
+      "Payment has been initialized and is awaiting client payment.",
+
+    metadata: {
+      paymentId: payment._id,
+      paymentReference:
+        payment.providerReference,
+      amount:
+        payment.amount,
+      currency:
+        payment.currency
+    }
+  });
+
+  /*
+  |--------------------------------------------------------------------------
+  | Initialize Transaction With Paystack
+  |--------------------------------------------------------------------------
+  */
+
   try {
     const response = await paystack.post(
       "/transaction/initialize",
       {
         email: client.email,
+
         amount: Math.round(
           totalClientCharge * 100
         ),
+
         currency: milestone.currency,
+
         reference,
+
         metadata: {
-          paymentId: payment._id.toString(),
+          paymentId:
+            payment._id.toString(),
+
           milestoneId:
             milestone._id.toString(),
+
           projectId:
             milestone.project._id.toString(),
+
           clientId:
             clientId.toString()
         }
@@ -160,17 +219,32 @@ const initializeMilestonePayment = async ({
 
     return {
       paymentId: payment._id,
+
       reference,
+
       authorizationUrl:
         response.data.data.authorization_url,
+
       accessCode:
         response.data.data.access_code,
-      amount: milestone.amount,
-      clientFee: fees.clientFee,
+
+      amount:
+        milestone.amount,
+
+      clientFee:
+        fees.clientFee,
+
       totalClientCharge
     };
   } catch (error) {
+    /*
+    |--------------------------------------------------------------------------
+    | Paystack Initialization Failed
+    |--------------------------------------------------------------------------
+    */
+
     payment.status = "FAILED";
+
     await payment.save();
 
     console.error(
@@ -185,6 +259,23 @@ const initializeMilestonePayment = async ({
     );
   }
 };
+
+/*
+|--------------------------------------------------------------------------
+| Verify Payment
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+| This function ONLY verifies the transaction with Paystack.
+|
+| It does NOT:
+| - change payment status to FUNDED
+| - fund the milestone
+| - activate the contract
+|
+| The Paystack webhook is responsible for settlement.
+|--------------------------------------------------------------------------
+*/
 
 const verifyPayment = async (reference) => {
   const payment = await Payment.findOne({
@@ -205,17 +296,11 @@ const verifyPayment = async (reference) => {
   const transaction =
     response.data.data;
 
-  if (
-    transaction.status !== "success"
-  ) {
-    payment.status = "FAILED";
-    await payment.save();
-
-    throw new AppError(
-      "Payment was not successful",
-      400
-    );
-  }
+  /*
+  |--------------------------------------------------------------------------
+  | Verify Amount
+  |--------------------------------------------------------------------------
+  */
 
   const expectedAmount =
     Math.round(
@@ -234,107 +319,36 @@ const verifyPayment = async (reference) => {
     );
   }
 
-  payment.status = "FUNDED";
-  payment.providerTransactionId =
-    String(transaction.id);
-  payment.paidAt = new Date();
+  /*
+  |--------------------------------------------------------------------------
+  | Return Verification Result
+  |--------------------------------------------------------------------------
+  */
 
-  await payment.save();
+  return {
+    payment,
 
-  const milestone =
-    await Milestone.findById(
-      payment.milestone
-    );
+    transaction: {
+      status:
+        transaction.status,
 
-  if (!milestone) {
-    throw new AppError(
-      "Milestone not found",
-      404
-    );
-  }
+      reference:
+        transaction.reference,
 
-  milestone.status = "FUNDED";
-
-  await milestone.save();
-
-  return payment;
-};
-
-
-const releaseMilestonePayment =
-  async (milestoneId) => {
-    const milestone =
-      await Milestone.findById(
-        milestoneId
-      );
-
-    if (!milestone) {
-      throw new AppError(
-        "Milestone not found",
-        404
-      );
-    }
-
-    if (
-      milestone.status !== "APPROVED"
-    ) {
-      throw new AppError(
-        "Milestone must be approved before payment can be released",
-        400
-      );
-    }
-
-    const payment =
-      await Payment.findOne({
-        milestone: milestone._id,
-        status: "FUNDED"
-      });
-
-    if (!payment) {
-      throw new AppError(
-        "Funded payment not found",
-        404
-      );
-    }
-
-    await creditFreelancer({
-      userId:
-        payment.freelancer,
       amount:
-        payment.freelancerNetAmount,
-      paymentId:
-        payment._id,
-      milestoneId:
-        milestone._id,
-      description:
-        `Payment released for milestone ${milestone.title}`
-    });
+        transaction.amount,
 
-    payment.status =
-      "RELEASED";
+      currency:
+        transaction.currency,
 
-    payment.releasedAt =
-      new Date();
-
-    await payment.save();
-
-    milestone.status =
-      "RELEASED";
-
-    milestone.releasedAt =
-      new Date();
-
-    await milestone.save();
-
-    return {
-      payment,
-      milestone
-    };
+      id:
+        transaction.id
+    }
   };
+};
 
 module.exports = {
   initializeMilestonePayment,
   calculateFees,
-  verifyPayment,
-  releaseMilestonePayment
+  verifyPayment
 };
