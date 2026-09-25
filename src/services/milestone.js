@@ -1,5 +1,5 @@
 const Milestone = require("../models/milestone.js");
-const Project = require("../models/Project.js");
+const Project = require("../models/project.js");
 const AppError = require("../utils/AppError");
 
 
@@ -77,7 +77,7 @@ const createMilestone = async (
     );
   }
 
-  if (project.status !== "ACTIVE") {
+  if (project.status !== "IN_PROGRESS") {
     throw new AppError(
       "Milestones can only be created for active projects",
       400
@@ -116,7 +116,7 @@ const createMilestone = async (
   */
   if (
     currentTotal + milestoneData.amount >
-    project.budget
+    project.totalAmount
   ) {
     throw new AppError(
       "Milestone amount exceeds the remaining project budget",
@@ -502,7 +502,7 @@ const submitMilestone = async (
     );
   }
 
-  milestone.submission =
+  milestone.submissionNote =
     submission;
 
   milestone.status = "SUBMITTED";
@@ -595,12 +595,12 @@ const remaining =
   });
 
 if (
-  project.status === "ACTIVE" &&
+  project.status === "IN_PROGRESS" &&
   total > 0 &&
   remaining === 0
 ) {
   project.status = "COMPLETED";
-  project.endDate = new Date();
+  project.completedAt = new Date();
 
   await project.save();
 }

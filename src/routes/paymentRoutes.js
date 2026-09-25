@@ -2,8 +2,7 @@ const express = require("express");
 
 const {
   initializePayment,
-  verifyPayment,
-  releasePayment
+  verifyPayment
 } = require("../controllers/paymentController.js");
 
 const protect = require("../middleware/authMiddleware.js");
@@ -28,10 +27,13 @@ router.post(
   verifyPayment
 );
 
-router.post(
-  "/release",
-  protect,
-  releasePayment
-);
+/*
+  NOTE: POST /release used to live here. It duplicated
+  the milestone-approval payout flow but bypassed the
+  pendingBalance/availableBalance split and could never
+  actually succeed. Releasing payment now happens
+  exclusively through:
+    POST /api/milestones/:milestoneId/approve
+*/
 
 module.exports = router;

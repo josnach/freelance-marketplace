@@ -1,6 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
 const paymentService = require("../services/payment.js");
-const AppError = require("../utils/AppError.js");
 
 const initializePayment = asyncHandler(
   async (req, res) => {
@@ -45,50 +44,20 @@ const verifyPayment =
     }
   );
 
-  const releasePayment =
-  asyncHandler(
-    async (req, res) => {
-      const { milestoneId } =
-        req.body;
-
-      const milestone =
-        await require("../models/milestone.js")
-          .findById(milestoneId);
-
-      if (!milestone) {
-       throw new AppError(
-  "Milestone not found",
-  404
-);
-      }
-
-      if (
-        milestone.client.toString() !==
-        req.user._id.toString()
-      ) {
-     throw new AppError(
-  "You are not authorized to release this payment",
-  403
-);
-      }
-
-      const result =
-        await paymentService
-          .releaseMilestonePayment(
-            milestoneId
-          );
-
-      res.status(200).json({
-        success: true,
-        message:
-          "Milestone payment released successfully",
-        data: result
-      });
-    }
-  );
+/*
+  NOTE: this file previously also exported
+  releasePayment, a second "release a milestone's
+  payment" path that bypassed the wallet's
+  pendingBalance/availableBalance split entirely and
+  gated on a milestone status ("APPROVED") that
+  nothing in the app ever sets - it could never
+  succeed. Releasing payment happens through
+  POST /api/milestones/:milestoneId/approve
+  (milestoneApprovalController.js), which does the
+  full pending->available transfer atomically.
+*/
 
 module.exports = {
   initializePayment,
-  verifyPayment,
-  releasePayment
+  verifyPayment
 };

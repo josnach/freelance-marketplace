@@ -22,12 +22,13 @@ const paymentSchema = new mongoose.Schema(
       index: true,
     },
 
-    milestone: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Milestone",
-      required: true,
-      index: true,
-    },
+ milestone: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Milestone",
+  required: true,
+  unique: true,
+  index: true,
+},
 
     // =========================
     // USERS

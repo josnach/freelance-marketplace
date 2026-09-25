@@ -1,10 +1,10 @@
 const mongoose = require("mongoose");
 
-const projectSchema = new mongoose.Schema(
+const contractSchema = new mongoose.Schema(
   {
-    job: {
+    project: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Job",
+      ref: "Project",
       required: true,
       unique: true,
       index: true,
@@ -31,66 +31,23 @@ const projectSchema = new mongoose.Schema(
       unique: true,
     },
 
-    contract: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Contract",
-      unique: true,
-      sparse: true,
-      index: true,
-    },
-
-    title: {
+    contractType: {
       type: String,
-      required: true,
-      trim: true,
-    },
-
-    description: {
-      type: String,
-      default: "",
-      trim: true,
-    },
-
-    totalAmount: {
-      type: Number,
-      required: true,
-      min: 1,
-    },
-
-    currency: {
-      type: String,
-      default: "NGN",
-      uppercase: true,
-      trim: true,
+      enum: ["FIXED_PRICE"],
+      default: "FIXED_PRICE",
     },
 
     status: {
       type: String,
       enum: [
-        "AWAITING_PAYMENT",
-        "IN_PROGRESS",
+        "PENDING_PAYMENT",
+        "ACTIVE",
+        "PAUSED",
         "COMPLETED",
         "CANCELLED",
         "DISPUTED",
       ],
-      default: "AWAITING_PAYMENT",
-      index: true,
-    },
-
-    funded: {
-      type: Boolean,
-      default: false,
-    },
-
-    fundedAt: {
-      type: Date,
-      default: null,
-    },
-
-    paymentReference: {
-      type: String,
-      unique: true,
-      sparse: true,
+      default: "PENDING_PAYMENT",
       index: true,
     },
 
@@ -108,6 +65,11 @@ const projectSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    cancellationReason: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
@@ -115,5 +77,5 @@ const projectSchema = new mongoose.Schema(
 );
 
 module.exports =
-  mongoose.models.Project ||
-  mongoose.model("Project", projectSchema);
+  mongoose.models.Contract ||
+  mongoose.model("Contract", contractSchema);

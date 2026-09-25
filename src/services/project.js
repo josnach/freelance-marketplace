@@ -1,4 +1,4 @@
-const Project = require("../models/Project.js");
+const Project = require("../models/project.js");
 const Milestone = require("../models/milestone.js");
 const AppError = require("../utils/AppError");
 
@@ -141,7 +141,7 @@ const updateProject = async (
     );
   }
 
-  if (project.status !== "ACTIVE") {
+  if (project.status !== "IN_PROGRESS") {
     throw new AppError(
       "Only active projects can be updated",
       400
@@ -190,7 +190,7 @@ const cancelProject = async (
     );
   }
 
-  if (project.status !== "ACTIVE") {
+  if (project.status !== "IN_PROGRESS") {
     throw new AppError(
       "Only active projects can be cancelled",
       400
@@ -198,7 +198,7 @@ const cancelProject = async (
   }
 
   project.status = "CANCELLED";
-  project.endDate = new Date();
+  project.cancelledAt = new Date();
 
   await project.save();
 
@@ -256,7 +256,7 @@ const completeProject = async (
     );
   }
 
-  if (project.status !== "ACTIVE") {
+  if (project.status !== "IN_PROGRESS") {
     throw new AppError(
       "Only active projects can be completed",
       400
@@ -275,7 +275,7 @@ const completeProject = async (
   const approvedMilestones =
     await Milestone.countDocuments({
       project: project._id,
-      status: "APPROVED"
+      status: "RELEASED"
     });
 
   if (
@@ -298,7 +298,7 @@ const completeProject = async (
   }
 
   project.status = "COMPLETED";
-  project.endDate = new Date();
+  project.completedAt = new Date();
 
   await project.save();
 

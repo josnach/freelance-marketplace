@@ -79,6 +79,7 @@ const milestoneSchema = new mongoose.Schema(
         "REFUNDED",
         "DISPUTED",
         "CANCELLED",
+        "REJECTED",
       ],
       default: "PENDING",
       index: true,

@@ -11,15 +11,12 @@ const {
   updateMilestone,
   deleteMilestone,
   startMilestone,
-  submitMilestone,
-  approveMilestone,
   rejectMilestone
 } = require("../controllers/milestoneController");
 
 const {
   createMilestoneSchema,
-  updateMilestoneSchema,
-  submitMilestoneSchema
+  updateMilestoneSchema
 } = require("../validators/milestoneValidator");
 
 const router = express.Router();
@@ -109,15 +106,15 @@ router.patch(
 
 
 /*
-  Freelancer submits work
+  NOTE: submit and approve used to live here as
+  PATCH /milestones/:id/submit and
+  PATCH /milestones/:id/approve, duplicating the
+  workroom routes below with an incompatible
+  implementation. They've been removed - use:
+    POST /api/milestones/:milestoneId/submit
+    POST /api/milestones/:milestoneId/approve
+  (registered in workroomRoutes.js)
 */
-router.patch(
-  "/milestones/:id/submit",
-  protect,
-  authorize("FREELANCER"),
-  validate(submitMilestoneSchema),
-  submitMilestone
-);
 
 
 /*
@@ -125,17 +122,6 @@ router.patch(
 CLIENT ACTIONS
 ====================================================
 */
-
-/*
-  Client approves milestone
-*/
-router.patch(
-  "/milestones/:id/approve",
-  protect,
-  authorize("CLIENT"),
-  approveMilestone
-);
-
 
 /*
   Client rejects milestone

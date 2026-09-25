@@ -30,6 +30,17 @@ const walletTransactionSchema =
         required: true,
       },
 
+      /*
+       * Indicates which wallet balance
+       * this transaction affected.
+       */
+      balanceType: {
+        type: String,
+        enum: ["PENDING", "AVAILABLE"],
+        required: true,
+        index: true,
+      },
+
       direction: {
         type: String,
         enum: ["CREDIT", "DEBIT"],

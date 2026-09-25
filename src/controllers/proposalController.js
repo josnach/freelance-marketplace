@@ -1,5 +1,24 @@
+const mongoose = require("mongoose");
+const crypto = require("crypto");
+
 const proposalService = require("../services/proposal.js");
 const asyncHandler = require("../utils/asyncHandler");
+
+// Models
+const Proposal = require("../models/proposal");
+const Project = require("../models/project");
+const Milestone = require("../models/milestone");
+const Job = require("../models/job");
+const Payment = require("../models/Payment");
+const Contract = require("../models/contract");
+const ProjectActivity = require("../models/projectActivity");
+
+
+/*
+====================================================
+CREATE PROPOSAL
+====================================================
+*/
 
 const createProposal = asyncHandler(
   async (req, res) => {
@@ -14,11 +33,18 @@ const createProposal = asyncHandler(
       success: true,
       message: "Proposal submitted successfully",
       data: {
-        proposal
-      }
+        proposal,
+      },
     });
   }
 );
+
+
+/*
+====================================================
+GET JOB PROPOSALS
+====================================================
+*/
 
 const getJobProposals = asyncHandler(
   async (req, res) => {
@@ -31,11 +57,18 @@ const getJobProposals = asyncHandler(
     res.status(200).json({
       success: true,
       data: {
-        proposals
-      }
+        proposals,
+      },
     });
   }
 );
+
+
+/*
+====================================================
+GET MY PROPOSALS
+====================================================
+*/
 
 const getMyProposals = asyncHandler(
   async (req, res) => {
@@ -47,11 +80,18 @@ const getMyProposals = asyncHandler(
     res.status(200).json({
       success: true,
       data: {
-        proposals
-      }
+        proposals,
+      },
     });
   }
 );
+
+
+/*
+====================================================
+GET PROPOSAL BY ID
+====================================================
+*/
 
 const getProposalById = asyncHandler(
   async (req, res) => {
@@ -64,18 +104,38 @@ const getProposalById = asyncHandler(
     res.status(200).json({
       success: true,
       data: {
-        proposal
-      }
+        proposal,
+      },
     });
   }
 );
 
 
 /*
-
+====================================================
 ACCEPT PROPOSAL
+====================================================
 
+FLOW:
+
+1. Start transaction
+2. Find proposal
+3. Validate proposal
+4. Check duplicate project
+5. Create project
+6. Create contract
+7. Create project activity
+8. Create milestone
+9. Accept proposal
+10. Update job
+11. Generate payment reference
+12. Create payment
+13. Save payment reference
+14. Commit transaction
+
+====================================================
 */
+
 const acceptProposal = async (req, res, next) => {
   const session = await mongoose.startSession();
 
@@ -84,7 +144,18 @@ const acceptProposal = async (req, res, next) => {
 
     const clientId = req.user._id;
 
+    let createdProject = null;
+    let createdContract = null;
+    let createdMilestone = null;
+    let createdPayment = null;
+
     await session.withTransaction(async () => {
+      /*
+      ==================================================
+      1. FIND PROPOSAL
+      ==================================================
+      */
+
       const proposal = await Proposal.findById(
         proposalId
       )
@@ -96,6 +167,24 @@ const acceptProposal = async (req, res, next) => {
         throw new Error("Proposal not found");
       }
 
+      /*
+      ==================================================
+      2. VERIFY JOB
+      ==================================================
+      */
+
+      if (!proposal.job) {
+        throw new Error(
+          "The job associated with this proposal no longer exists"
+        );
+      }
+
+      /*
+      ==================================================
+      3. VERIFY CLIENT
+      ==================================================
+      */
+
       if (
         proposal.job.client.toString() !==
         clientId.toString()
@@ -105,6 +194,12 @@ const acceptProposal = async (req, res, next) => {
         );
       }
 
+      /*
+      ==================================================
+      4. PROPOSAL MUST BE PENDING
+      ==================================================
+      */
+
       if (proposal.status !== "PENDING") {
         throw new Error(
           "This proposal is no longer available"
@@ -112,91 +207,329 @@ const acceptProposal = async (req, res, next) => {
       }
 
       /*
-       * Prevent duplicate project creation
-       */
+      ==================================================
+      5. JOB MUST STILL BE OPEN
+      ==================================================
+      */
 
-      const existingProject =
-        await Project.findOne({
-          proposal: proposal._id,
-        }).session(session);
-
-      if (existingProject) {
+      if (proposal.job.status !== "OPEN") {
         throw new Error(
-          "A project already exists for this proposal"
+          "This job is no longer open"
         );
       }
 
       /*
-       * Create project
-       */
+      ==================================================
+      6. MAKE SURE PROJECT DOESN'T ALREADY EXIST
+      ==================================================
+      */
 
-      const project = await Project.create(
+      const existingProject =
+        await Project.findOne({
+          $or: [
+            {
+              proposal: proposal._id,
+            },
+            {
+              job: proposal.job._id,
+            },
+          ],
+        }).session(session);
+
+      if (existingProject) {
+        throw new Error(
+          "A project already exists for this job"
+        );
+      }
+
+      /*
+      ==================================================
+      7. CREATE PROJECT
+      ==================================================
+      */
+
+      const projects = await Project.create(
         [
           {
-            title: proposal.job.title,
-
-            description:
-              proposal.job.description,
+            job: proposal.job._id,
 
             client: clientId,
 
             freelancer:
               proposal.freelancer._id,
 
-            job: proposal.job._id,
-
             proposal: proposal._id,
 
-            budget: proposal.bidAmount,
-
-            status: "AWAITING_PAYMENT",
-
-            funded: false,
-          },
-        ],
-        { session }
-      );
-
-      const createdProject = project[0];
-
-      /*
-       * Create milestones.
-       *
-       * If your proposal already has milestone
-       * information, use that instead.
-       */
-
-      await Milestone.create(
-        [
-          {
-            project: createdProject._id,
-
-            title: "Project Milestone",
+            title:
+              proposal.job.title,
 
             description:
-              "Complete the agreed project work.",
+              proposal.job.description || "",
 
-            amount: proposal.bidAmount,
+            totalAmount:
+              proposal.bidAmount,
 
-            order: 1,
+            currency: "NGN",
 
-            status: "PENDING",
+            status:
+              "AWAITING_PAYMENT",
+
+            funded: false,
+
+            fundedAt: null,
+
+            startedAt: null,
+
+            completedAt: null,
           },
         ],
-        { session }
+        {
+          session,
+        }
       );
 
+      createdProject = projects[0];
+
       /*
-       * Update proposal
-       */
+      ==================================================
+      8. CREATE CONTRACT
+      ==================================================
+      */
+
+      const contracts =
+        await Contract.create(
+          [
+            {
+              project:
+                createdProject._id,
+
+              client:
+                clientId,
+
+              freelancer:
+                proposal.freelancer._id,
+
+              proposal:
+                proposal._id,
+
+              contractType:
+                "FIXED_PRICE",
+
+              status:
+                "PENDING_PAYMENT",
+            },
+          ],
+          {
+            session,
+          }
+        );
+
+      createdContract = contracts[0];
+
+      /*
+      ==================================================
+      9. CONNECT CONTRACT TO PROJECT
+      ==================================================
+      */
+
+      createdProject.contract =
+        createdContract._id;
+
+      await createdProject.save({
+        session,
+      });
+
+      /*
+      ==================================================
+      10. CREATE FIRST MILESTONE
+      ==================================================
+      */
+
+      const milestones =
+        await Milestone.create(
+          [
+            {
+              project:
+                createdProject._id,
+
+              client:
+                clientId,
+
+              freelancer:
+                proposal.freelancer._id,
+
+              title:
+                "Project Milestone 1",
+
+              description:
+                "Complete the agreed project work.",
+
+              amount:
+                proposal.bidAmount,
+
+              currency: "NGN",
+
+              order: 1,
+
+              status: "PENDING",
+            },
+          ],
+          {
+            session,
+          }
+        );
+
+      createdMilestone =
+        milestones[0];
+
+      /*
+      ==================================================
+      11. GENERATE INTERNAL PAYMENT REFERENCE
+      ==================================================
+      */
+
+      const reference =
+        `project-${createdProject._id}-${crypto
+          .randomBytes(8)
+          .toString("hex")}`
+          .toLowerCase();
+
+      /*
+      ==================================================
+      12. CREATE PAYMENT
+      ==================================================
+      */
+
+      const payments =
+        await Payment.create(
+          [
+            {
+              reference,
+
+              project:
+                createdProject._id,
+
+              milestone:
+                createdMilestone._id,
+
+              client:
+                clientId,
+
+              freelancer:
+                proposal.freelancer._id,
+
+              amount:
+                proposal.bidAmount,
+
+              clientFee: 0,
+
+              freelancerFee: 0,
+
+              freelancerNetAmount:
+                proposal.bidAmount,
+
+              currency: "NGN",
+
+              status: "PENDING",
+
+              provider:
+                "PAYSTACK",
+
+              providerReference:
+                null,
+
+              providerTransactionId:
+                null,
+
+              providerStatus:
+                null,
+
+              paidAt: null,
+
+              releasedAt: null,
+
+              refundedAt: null,
+
+              metadata: {},
+            },
+          ],
+          {
+            session,
+          }
+        );
+
+      createdPayment =
+        payments[0];
+
+      /*
+      ==================================================
+      13. CONNECT PAYMENT TO MILESTONE
+      ==================================================
+      */
+
+      createdMilestone.payment =
+        createdPayment._id;
+
+      await createdMilestone.save({
+        session,
+      });
+
+      /*
+      ==================================================
+      14. SAVE PAYMENT REFERENCE ON PROJECT
+      ==================================================
+      */
+
+      createdProject.paymentReference =
+        createdPayment.reference;
+
+      await createdProject.save({
+        session,
+      });
+
+      /*
+      ==================================================
+      15. ACCEPT SELECTED PROPOSAL
+      ==================================================
+      */
 
       proposal.status = "ACCEPTED";
 
-      await proposal.save({ session });
+      await proposal.save({
+        session,
+      });
 
       /*
-       * Update job
-       */
+      ==================================================
+      16. REJECT OTHER PENDING PROPOSALS
+      ==================================================
+      */
+
+      await Proposal.updateMany(
+        {
+          job: proposal.job._id,
+
+          _id: {
+            $ne: proposal._id,
+          },
+
+          status: "PENDING",
+        },
+        {
+          $set: {
+            status: "REJECTED",
+          },
+        },
+        {
+          session,
+        }
+      );
+
+      /*
+      ==================================================
+      17. UPDATE JOB
+      ==================================================
+      */
 
       await Job.findByIdAndUpdate(
         proposal.job._id,
@@ -205,60 +538,71 @@ const acceptProposal = async (req, res, next) => {
             status: "IN_PROGRESS",
           },
         },
-        { session }
+        {
+          session,
+          new: true,
+        }
       );
 
       /*
-       * Generate unique payment reference
-       */
+      ==================================================
+      18. CREATE PROJECT ACTIVITY
+      ==================================================
+      */
 
-      const reference =
-        `project-${createdProject._id}-${crypto
-          .randomBytes(8)
-          .toString("hex")}`.toLowerCase();
-
-      /*
-       * Create payment record
-       */
-
-      await Payment.create(
+      await ProjectActivity.create(
         [
           {
-            reference,
+            project:
+              createdProject._id,
 
-            client: clientId,
+            user:
+              clientId,
 
-            freelancer:
-              proposal.freelancer._id,
+            type:
+              "CONTRACT_CREATED",
 
-            project: createdProject._id,
-
-            amount: proposal.bidAmount,
-
-            currency: "NGN",
-
-            provider: "PAYSTACK",
-
-            status: "PENDING",
+            message:
+              "Proposal accepted. Project, contract, milestone and payment were created and are awaiting payment.",
           },
         ],
-        { session }
+        {
+          session,
+        }
       );
-
-      /*
-       * Save payment reference on project
-       */
-
-      createdProject.paymentReference =
-        reference;
-
-      await createdProject.save({ session });
     });
 
-    res.status(201).json({
+    /*
+    ==================================================
+    19. RESPONSE
+    ==================================================
+    */
+
+    return res.status(201).json({
       success: true,
+
       message:
-        "Proposal accepted. Project created and awaiting payment.",
+        "Proposal accepted. Project, contract, milestone and payment created successfully.",
+
+      data: {
+        projectId:
+          createdProject?._id,
+
+        contractId:
+          createdContract?._id,
+
+        milestoneId:
+          createdMilestone?._id,
+
+        paymentId:
+          createdPayment?._id,
+
+        paymentReference:
+          createdPayment?.reference,
+
+        status:
+          "AWAITING_PAYMENT",
+      },
     });
   } catch (error) {
     next(error);
@@ -266,7 +610,6 @@ const acceptProposal = async (req, res, next) => {
     await session.endSession();
   }
 };
-
 
 /*
 
@@ -284,13 +627,18 @@ const rejectProposal = asyncHandler(
 
     res.status(200).json({
       success: true,
-      message: "Proposal rejected successfully",
+
+      message:
+        "Proposal rejected successfully",
+
       data: {
-        proposal
-      }
+        proposal,
+      },
     });
   }
 );
+
+
 
 
 module.exports = {
@@ -299,5 +647,5 @@ module.exports = {
   getMyProposals,
   getProposalById,
   acceptProposal,
-  rejectProposal
+  rejectProposal,
 };
